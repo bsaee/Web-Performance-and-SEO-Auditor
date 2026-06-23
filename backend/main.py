@@ -17,6 +17,10 @@ load_dotenv()
 
 app = FastAPI(title="Web Auditor API")
 
+@app.get("/")
+def home():
+    return {"status": "healthy", "message": "Web Performance Auditor API Engine is fully operational"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
