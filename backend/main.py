@@ -7,6 +7,10 @@ from bs4 import BeautifulSoup
 import asyncio
 import os
 from dotenv import load_dotenv
+from fastapi import Depends, HTTPException
+from sqlalchemy.orm import Session
+from database import get_db, AuditLog
+import datetime
 
 # Load the environment variables from the .env file
 load_dotenv()
@@ -159,23 +163,120 @@ async def analyze_seo_and_links(html_content: str, base_url: str) -> dict:
         "performance": perf_report
     }
 
+# Update your request schema to receive whether they want to toggle it or not
+class AuditRequest(BaseModel):
+    url: str
+
+class SaveToggleRequest(BaseModel):
+    log_id: int
+
 @app.post("/api/audit")
-async def start_audit(request: AuditRequest):
+async def start_audit(request: AuditRequest, db: Session = Depends(get_db)):
+    # Clean up trailing slashes for uniform database URL queries
+    target_url = request.url.strip().rstrip("/")
+    
+    # --- 1. THE CACHING LAYER ENGINE ---
+    # Check if this exact URL was audited in the last 10 minutes
+    ten_minutes_ago = datetime.datetime.utcnow() - datetime.timedelta(minutes=10)
+    cached_entry = db.query(AuditLog).filter(
+        AuditLog.url == target_url, 
+        AuditLog.timestamp >= ten_minutes_ago
+    ).order_by(AuditLog.timestamp.desc()).first()
+    
+    if cached_entry:
+        print(f"[CACHE HIT] Serving recent cached metrics for: {target_url}")
+        return {
+            "success": True,
+            "url": cached_entry.url,
+            "log_id": cached_entry.id,
+            "is_saved": cached_entry.is_saved,
+            "report": {
+                "title": {"value": cached_entry.title_value, "status": cached_entry.title_status, "message": cached_entry.title_message},
+                "description": {"value": cached_entry.desc_value, "status": cached_entry.desc_status, "message": cached_entry.desc_message},
+                "h1_count": {"value": cached_entry.h1_value, "status": cached_entry.h1_status, "message": cached_entry.h1_message},
+                "images": {"value": cached_entry.img_value, "status": cached_entry.img_status, "message": cached_entry.img_message},
+                "links": {"value": cached_entry.link_value, "status": cached_entry.link_status, "message": cached_entry.link_message},
+                "performance": {"value": cached_entry.perf_value, "status": cached_entry.perf_status, "message": cached_entry.perf_message}
+            }
+        }
+        
+    print(f"[CACHE MISS] Compiling new live parallel audit pipelines for: {target_url}")
+    
+    # --- 2. THE PIPELINE EXECUTION ENGINE ---
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
             "Connection": "keep-alive"
         }
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(request.url, headers=headers, follow_redirects=True)
+        
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(target_url, headers=headers, follow_redirects=True)
             
         if response.status_code != 200:
             return {"success": False, "message": f"Failed to reach target site. Status code: {response.status_code}"}
             
-        seo_report = await analyze_seo_and_links(response.text, request.url)
-        return {"success": True, "url": request.url, "report": seo_report}
+        html_content = response.text
+
+        seo_and_links_task = asyncio.create_task(analyze_seo_and_links(html_content, target_url))
+        performance_task = asyncio.create_task(get_pagespeed_metrics(target_url, html_content))
+        
+        report_data, perf_data = await asyncio.gather(seo_and_links_task, performance_task)
+        report_data["performance"] = perf_data
+        
+        # --- 3. SAVE TEMP REPORT ENTRY ---
+        new_log = AuditLog(
+            url=target_url,
+            title_value=report_data["title"]["value"],
+            title_status=report_data["title"]["status"],
+            title_message=report_data["title"]["message"],
+            desc_value=report_data["description"]["value"],
+            desc_status=report_data["description"]["status"],
+            desc_message=report_data["description"]["message"],
+            h1_value=report_data["h1_count"]["value"],
+            h1_status=report_data["h1_count"]["status"],
+            h1_message=report_data["h1_count"]["message"],
+            img_value=report_data["images"]["value"],
+            img_status=report_data["images"]["status"],
+            img_message=report_data["images"]["message"],
+            link_value=report_data["links"]["value"],
+            link_status=report_data["links"]["status"],
+            link_message=report_data["links"]["message"],
+            perf_value=perf_data["value"],
+            perf_status=perf_data["status"],
+            perf_message=perf_data["message"],
+            is_saved=False # Defaults to unpinned/unsaved
+        )
+        db.add(new_log)
+        db.commit()
+        db.refresh(new_log)
+        
+        return {"success": True, "url": target_url, "log_id": new_log.id, "is_saved": False, "report": report_data}
 
     except Exception as e:
         return {"success": False, "message": f"An error occurred: {str(e)}"}
+
+# ENDPOINT: Let the user pin/unpin a report from history log
+@app.post("/api/history/toggle")
+def toggle_history_save(request: SaveToggleRequest, db: Session = Depends(get_db)):
+    log_entry = db.query(AuditLog).filter(AuditLog.id == request.log_id).first()
+    if not log_entry:
+        raise HTTPException(status_code=404, detail="Audit record not found")
+        
+    # Flip the boolean value toggle switch
+    log_entry.is_saved = not log_entry.is_saved
+    db.commit()
+    return {"success": True, "is_saved": log_entry.is_saved}
+
+# ENDPOINT: Fetch only the rows manually saved/pinned by team members
+@app.get("/api/history")
+def get_audit_history(db: Session = Depends(get_db)):
+    logs = db.query(AuditLog).filter(AuditLog.is_saved == True).order_by(AuditLog.timestamp.desc()).limit(10).all()
+    return [
+        {
+            "id": log.id,
+            "url": log.url,
+            "timestamp": log.timestamp.strftime("%Y-%m-%d %H:%M"),
+            "perf_value": log.perf_value
+        } for log in logs
+    ]
