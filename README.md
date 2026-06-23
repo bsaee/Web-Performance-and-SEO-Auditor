@@ -1,3 +1,10 @@
+## Deployments: 
+[![Frontend Portal](https://img.shields.io/badge/Live_Dashboard-Vercel-black?style=for-the-badge&logo=vercel)](https://web-performance-and-seo-auditor.vercel.app/)
+[![Backend Engine](https://img.shields.io/badge/Production_API-Render-darkgreen?style=for-the-badge&logo=render)](https://web-performance-and-seo-auditor.onrender.com)
+
+# Web Performance & SEO Diagnostic Suite
+... (Keep the rest of your original README contents exactly the same here) ...
+
 # Web Performance & SEO Diagnostic Suite
 
 An enterprise-grade web auditing dashboard built with **FastAPI (Python)** and **React (Vite/Tailwind CSS)**. This application compiles critical SEO metrics, parses document hierarchies, evaluates structural image assets, monitors broken hyperlink pathways concurrently, and fetches live Core Web Vital performance scores directly from the **Google PageSpeed Insights API**.
