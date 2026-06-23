@@ -1,0 +1,15 @@
+# Python Backend ignores
+backend/venv/
+backend/.env
+backend/audits.db
+backend/__pycache__/
+backend/.pytest_cache/
+
+# React Frontend ignores
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# OS specific ignores
+.DS_Store
+Thumbs.db
