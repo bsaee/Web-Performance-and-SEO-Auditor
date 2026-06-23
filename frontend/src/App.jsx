@@ -11,7 +11,7 @@ function App() {
   // Fetch the pinned audit logs from the database history on component load
   const fetchHistory = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/history')
+      const response = await fetch('https://web-performance-and-seo-auditor.onrender.com/api/history')
       const data = await response.json()
       setHistory(data)
     } catch (error) {
@@ -29,7 +29,7 @@ function App() {
     setResult(null)
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/audit', {
+      const response = await fetch('https://web-performance-and-seo-auditor.onrender.com/api/audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url })
@@ -49,7 +49,7 @@ function App() {
     setTogglingSave(true)
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/history/toggle', {
+      const response = await fetch('https://web-performance-and-seo-auditor.onrender.com/api/history/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ log_id: result.log_id })
@@ -108,7 +108,7 @@ function App() {
                   onClick={async (e) => {
                     e.stopPropagation(); // Prevents clicking the trash can from typing the URL in the input box
                     try {
-                      const response = await fetch('http://127.0.0.1:8000/api/history/toggle', {
+                      const response = await fetch('https://web-performance-and-seo-auditor.onrender.com/api/history/toggle', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ log_id: log.id })
